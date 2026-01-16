@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+
+import argparse
+import base64
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from urllib.parse import urlparse
+
+
+class GitUrl:
+    base_url: str
+    scheme: str
+    host_name: str
+    repo_name: str
+
+    def __init__(self, git_url: str):
+        url_stripped = (git_url or "").strip()
+        if not url_stripped:
+            raise ValueError("Empty git_url string")
+
+        url_parsed = urlparse(url_stripped)
+        scheme = url_parsed.scheme or None
+        host_name = None
+        repo_name = None
+
+        is_scp_like = (
+            not url_parsed.scheme
+            and ":" in url_stripped
+            and "/" in url_stripped.split(":", 1)[1]
+        )
+
+        if is_scp_like:
+            scheme = "ssh"
+            host_part, path_part = url_stripped.split(":", 1)
+            host_name = host_part.split("@", 1)[-1] if "@" in host_part else host_part
+            repo_name = path_part.rstrip("/").split("/")[-1]
+        elif scheme in {"ssh", "git+ssh", "http", "https"}:
+            host_name = url_parsed.hostname
+            repo_name = (url_parsed.path or "").rstrip("/").split("/")[-1]
+        else:
+            after_colon = url_stripped.split(":", 1)[-1]
+            repo_name = after_colon.rstrip("/").split("/")[-1]
+
+        if repo_name and repo_name.endswith(".git"):
+            repo_name = repo_name[: -len(".git")]
+
+        self.base_url = git_url
+        self.scheme = scheme
+        self.host_name = host_name
+        self.repo_name = repo_name
+
+    def __repr__(self):
+        d = {
+            "base_url": self.base_url,
+            "scheme": self.scheme,
+            "host_name": self.host_name,
+            "repo_name": self.repo_name,
+        }
+        return f"{self.__class__.__name__}({d})"
+
+
+class Addon:
+    git_url: GitUrl
+    branch: str | None = None
+    deploy_key: str | None = None
+    pull_existing: bool = False
+    clone_path: Path | None = None
+
+    def __init__(self, git_url, branch=None, deploy_key=None, pull_existing=False):
+        deploy_key_decoded = None
+        if deploy_key:
+            deploy_key_decoded = base64.b64decode(deploy_key).decode("utf-8")
+
+        self.git_url = GitUrl(git_url)
+        self.branch = branch
+        self.deploy_key = deploy_key_decoded
+        self.pull_existing = pull_existing
+
+    def __eq__(self, other):
+        if not isinstance(other, Addon):
+            return NotImplemented
+        return (self.git_url.base_url, self.branch) == (
+            other.git_url.base_url,
+            other.branch,
+        )
+
+    def __hash__(self):
+        return hash((self.git_url.base_url, self.branch))
+
+    def clone_repo(self, base_dir: Path, cache_dir: Path | None = None):
+        repo_name = self.git_url.repo_name
+        clone_path = base_dir / repo_name
+        cache_path = None
+
+        if cache_dir:
+            if not cache_dir.exists():
+                cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_path = cache_dir / repo_name
+
+        clone_path_exists = clone_path.exists()
+        if clone_path_exists and not (clone_path / ".git").exists():
+            raise FileExistsError(
+                f"Target path '{clone_path}' already exists but is not a git repository; refusing to overwrite. Please check your configuration."
+            )
+
+        self.clone_path = clone_path
+
+        deploy_key_path = None
+        try:
+            env = os.environ.copy()
+            if self.git_url.scheme and self.git_url.scheme.startswith("ssh"):
+                # Skip host checking and do not write known_hosts during build
+                ssh_base = (
+                    "ssh -o BatchMode=yes -o IdentitiesOnly=yes "
+                    "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+                )
+                if self.deploy_key:
+                    deploy_key_path = Path(
+                        f"/tmp/odeploy_key_{os.getpid()}_{self.git_url.repo_name}"
+                    )
+                    deploy_key_path.write_text(self.deploy_key)
+                    deploy_key_path.chmod(0o600)
+                env["GIT_SSH_COMMAND"] = (
+                    f"{ssh_base} -i {deploy_key_path}" if deploy_key_path else ssh_base
+                )
+
+            if cache_path:
+                if self.pull_existing:
+                    subprocess.run("git", "-C", str(cache_path), "pull")
+
+            if not clone_path_exists:
+                dest_path = cache_dir or base_dir
+                args = [
+                    "git",
+                    "-C",
+                    str(dest_path),
+                    "clone",
+                    "--single-branch",
+                    "--depth",
+                    "1",
+                ]
+                if self.branch:
+                    args += ["--branch", self.branch]
+                args += [self.git_url.base_url]
+
+                subprocess.run(args, env=env, check=not cache_dir)
+
+                if cache_path:
+                    shutil.copytree(cache_path, clone_path)
+
+            elif self.pull_existing:
+                dest_path = cache_path or clone_path
+
+                subprocess.run(
+                    ["git", "-C", str(dest_path), "fetch", "--all", "--prune"],
+                    env=env,
+                    check=True,
+                )
+
+                proc = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(dest_path),
+                        "rev-parse",
+                        "--abbrev-ref",
+                        "origin/HEAD",
+                    ],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+
+                remote_head = (proc.stdout or "").strip()
+                chosen_branch = self.branch
+                if not chosen_branch and remote_head.startswith("origin/"):
+                    branch_from_remote = remote_head.split("/", 1)[1]
+                    if branch_from_remote and branch_from_remote != "HEAD":
+                        chosen_branch = branch_from_remote
+                if chosen_branch:
+                    subprocess.run(
+                        [
+                            "git",
+                            "-C",
+                            str(dest_path),
+                            "checkout",
+                            "-B",
+                            chosen_branch,
+                            f"origin/{chosen_branch}",
+                        ],
+                        env=env,
+                        check=True,
+                    )
+
+                if cache_path:
+                    shutil.rmtree(clone_path)
+                    shutil.copytree(cache_path, clone_path)
+
+        finally:
+            if deploy_key_path is not None:
+                deploy_key_path.unlink()
+
+    def install_requirements(self):
+        if not self.clone_path:
+            return
+        for requirements in [
+            *self.clone_path.glob("requirements.txt"),
+            *self.clone_path.glob("*/requirements.txt"),
+        ]:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--upgrade",
+                    "-r",
+                    str(requirements),
+                ],
+                check=True,
+            )
+
+
+def get_addons(
+    base_dir: Path,
+    json_mode: bool,
+    b64: bool,
+    source: str,
+    cache_dir: Path | None = None,
+):
+    addons_str = None
+    if b64:
+        addons_str = base64.b64decode(source).decode("utf-8")
+    else:
+        source_path = Path(source)
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source file '{source}' not found")
+        addons_str = source_path.read_text("utf-8")
+
+    addons: set[Addon] = set()
+    if json_mode:
+        addons_json: list[dict] = json.loads(addons_str)
+        for item in addons_json:
+            addons.add(
+                Addon(
+                    item.get("url"),
+                    item.get("branch"),
+                    item.get("deploy_key"),
+                    item.get("pull_existing"),
+                )
+            )
+    else:
+        for line in addons_str.splitlines():
+            if not line or line.startswith("#"):
+                continue
+            addons.add(Addon(line.strip()))
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    for addon in addons:
+        addon.clone_repo(base_dir, cache_dir)
+    for addon in addons:
+        addon.install_requirements()
+
+    addons_file = Path.home() / "odoo-addons.txt"
+    addons_file.parent.mkdir(parents=True, exist_ok=True)
+    with addons_file.open("a+") as addons_txt:
+        addons_txt.seek(0)
+        existing_paths: set[Path] = set()
+        for line in addons_txt.read().splitlines():
+            if line.strip():
+                existing_paths.add(Path(line.strip()))
+        for addon in addons:
+            if addon.clone_path:
+                existing_paths.add(addon.clone_path)
+
+        addons_txt.seek(0)
+        addons_txt.truncate()
+        for path in sorted(existing_paths):
+            addons_txt.write(str(path) + "\n")
+
+
+def set_config(addons_list: Path, template: Path, out: Path):
+    addon_paths = set()
+    if addons_list.exists():
+        for line in addons_list.read_text().splitlines():
+            if not line:
+                continue
+            addon_paths.add(line.strip())
+    addon_paths_env = os.getenv("ODOO_ADDONS_PATH")
+    if addon_paths_env:
+        for path in addon_paths_env.split(","):
+            if path:
+                addon_paths.add(path)
+
+    env = os.environ.copy()
+    env["ODOO_ADDONS_PATH"] = ",".join(addon_paths)
+
+    proc = subprocess.run(
+        "envsubst",
+        input=template.read_text(),
+        text=True,
+        env=env,
+        stdout=subprocess.PIPE,
+        check=True,
+    )
+    out.write_text(proc.stdout)
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description="Helper script for setting up customized Odoo deployments"
+    )
+
+    subparser = parser.add_subparsers(dest="subcommand")
+
+    # setup-util get-addons < repos.txt
+    # setup-util get-addons - < repos.txt
+    # setup-util get-addons -j < "sample-b64-string"
+    parser_build = subparser.add_parser("get-addons")
+    parser_build.add_argument(
+        "-d",
+        "--base-dir",
+        type=Path,
+        default=Path("/opt/addons"),
+        help="Base directory to clone all addons inside of. Defaults to '/opt/addons'",
+    )
+    parser_build.add_argument(
+        "-c",
+        "--cache-dir",
+        type=Path,
+        help="Path to a cahce dir. If supplied, git clone will try to find the repos from this dir",
+    )
+    parser_build.add_argument(
+        "-j",
+        "--json-mode",
+        action="store_true",
+        help="Use the JSON repo list format instead of plain text",
+    )
+    parser_build.add_argument(
+        "-b",
+        "--b64",
+        action="store_true",
+        help="Parse a b64-encoded string instead of reading from a file",
+    )
+    parser_build.add_argument(
+        "source",
+        help="Input source: a file path to a simple list of repos, or a b64-encoded json string if the '-j' flag was enabled",
+    )
+
+    parser_config = subparser.add_parser("set-config")
+    parser_config.add_argument(
+        "-a",
+        "--addons-list",
+        type=Path,
+        default=Path("/home/odoo/odoo-addons.txt"),
+        help="Path to addons list for setting 'addons_path' config key. Defaults to '/home/odoo/odoo-addons.txt'",
+    )
+    parser_config.add_argument(
+        "-t",
+        "--template",
+        type=Path,
+        default=Path("/home/odoo/template.odoo.conf"),
+        help="Path to the template config file. Defaults to '/home/odoo/template.odoo.conf'",
+    )
+    parser_config.add_argument(
+        "-o",
+        "--out",
+        type=Path,
+        default=Path(os.getenv("ODOO_RC") or "/etc/odoo/odoo.conf"),
+        help="Path to output destination file. Defaults to the value of '${ODOO_RC}', or '/etc/odoo/odoo.conf' if not set'",
+    )
+
+    return parser
+
+
+if __name__ == "__main__":
+    parser = build_parser()
+
+    if len(sys.argv) == 1:
+        parser.print_help(sys.stderr)
+        sys.exit(1)
+
+    args = parser.parse_args()
+
+    if args.subcommand == "get-addons":
+        get_addons(args.base_dir, args.json_mode, args.b64, args.source, args.cache_dir)
+    elif args.subcommand == "set-config":
+        set_config(args.addons_list, args.template, args.out)

@@ -1,0 +1,106 @@
+x-odoo-env: &odoo-env
+  ODOO_DB_HOST: ${DB_HOST:-db}
+  ODOO_DB_PORT: ${DB_PORT:-5432}
+  ODOO_DB_USER: ${DB_USER:-odoo}
+  ODOO_DB_PASSWORD: ${DB_PASSWORD:-odoo}
+  ODOO_LIST_DB: ${ODOO_LIST_DB:-False}
+
+x-odoo-defaults: &odoo-defaults
+  image: soolit-tech/odoo-base:${ODOO_VERSION:-18}
+  volumes:
+    - odoo-filestore:/var/lib/odoo
+
+services:
+  odoo-production:
+    <<: *odoo-defaults
+    depends_on:
+      - db
+    environment:
+      <<: *odoo-env
+      ODOO_DB_NAME: production
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.odoo-production.rule=Host(`localhost`) || Host(`127.0.0.1`)
+      - traefik.http.routers.odoo-production.entrypoints=websecure
+      - traefik.http.routers.odoo-production.tls.certresolver=main-resolver
+      - traefik.http.routers.odoo-production.priority=1
+      - traefik.http.routers.odoo-production.service=odoo-production
+      - traefik.http.services.odoo-production.loadbalancer.server.port=8069
+      - traefik.http.services.odoo-production.loadbalancer.healthcheck.path=/web/health
+      - traefik.http.services.odoo-production.loadbalancer.healthcheck.interval=5s
+      - traefik.http.services.odoo-production.loadbalancer.healthcheck.timeout=3s
+
+  odoo-staging:
+    <<: *odoo-defaults
+    depends_on:
+      db:
+        condition: service_started
+      odoo-production:
+        condition: service_healthy
+    environment:
+      <<: *odoo-env
+      ODOO_DB_NAME: staging
+    command:
+      - >
+        ./set-config.sh
+        && wait-for-psql
+        && odoo db duplicate -n -f production staging
+        && odoo
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.odoo-staging.rule=Host(`staging.localhost`)
+      - traefik.http.routers.odoo-staging.entrypoints=websecure
+      - traefik.http.routers.odoo-staging.tls.certresolver=main-resolver
+      - traefik.http.routers.odoo-staging.priority=100
+      - traefik.http.routers.odoo-staging.service=odoo-staging
+      - traefik.http.services.odoo-staging.loadbalancer.server.port=8069
+      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.path=/web/health
+      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.interval=5s
+      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.timeout=3s
+
+  db:
+    image: postgres:17
+    volumes:
+      - db-data:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-odoo}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-postgres}
+      PGDATA: /var/lib/postgresql/17/docker
+    ports:
+      - 5432:5432
+
+  proxy:
+    image: traefik
+    command:
+      # Providers
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.allowEmptyServices=true
+
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --certificatesResolvers.main-resolver.acme.httpChallenge=true
+      - --certificatesResolvers.main-resolver.acme.httpChallenge.entrypoint=web
+      - --certificatesResolvers.main-resolver.acme.email=${LETSENCRYPT_EMAIL:-}
+      - --certificatesResolvers.main-resolver.acme.storage=/letsencrypt/acme.json
+
+      # Observability
+      - --log.level=INFO
+      - --accesslog=true
+      - --metrics.prometheus=true
+    ports:
+      - ${HTTP_PUBLISH_PORT:-80}:80
+      - ${HTTPS_PUBLISH_PORT:-443}:443
+      - 8080:8080
+    volumes:
+      - cert-data:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock
+    userns_mode: host
+
+volumes:
+  odoo-filestore:
+  db-data:
+  cert-data:

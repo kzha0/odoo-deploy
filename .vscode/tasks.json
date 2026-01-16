@@ -1,0 +1,100 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Docker: build image",
+            "problemMatcher": [],
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "build",
+                "-f",
+                "${input:containerfile}",
+                "-t",
+                "odoo-deploy:${input:odooVersion}",
+                "."
+            ],
+        },
+        {
+            "label": "Docker Compose: up",
+            "type": "shell",
+            "problemMatcher": [],
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "compose.yml",
+                "up",
+                "-d",
+                "--remove-orphans"
+            ],
+        },
+        {
+            "label": "Docker Compose: up (rebuild images)",
+            "problemMatcher": [],
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "compose",
+                "-f",
+                "compose.yml",
+                "up",
+                "-d",
+                "--build",
+                "--remove-orphans"
+            ],
+        },
+        {
+            "label": "Shell: Base64 encode file",
+            "problemMatcher": [],
+            "type": "shell",
+            "command": "base64",
+            "args": [
+                "${input:pickYamlFile}"
+            ],
+        }
+    ],
+    "inputs": [
+        {
+            "id": "containerfile",
+            "type": "command",
+            "command": "extension.commandvariable.file.pickFile",
+            "args": {
+                "description": "Select containerfile",
+                "keyRemember": "containerfile",
+                "include": "*.Containerfile",
+                "display": "relativePath",
+                "fromFolder": {
+                    "fixed": "${workspaceFolder}/docker"
+                },
+            }
+        },
+        {
+            "id": "odooVersion",
+            "type": "command",
+            "command": "extension.commandvariable.transform",
+            "args": {
+                "text": "${remember:containerfile}",
+                "find": "^(?:.*[\\\/])?([^\\\/]+).Containerfile$",
+                "replace": "$1",
+                "key": "odooVersion"
+            }
+        },
+        {
+            "id": "pickYamlFile",
+            "type": "command",
+            "command": "extension.commandvariable.file.pickFile",
+            "args": {
+                "description": "Select yaml file",
+                "keyRemember": "yamlFile",
+                "include": "*.{yaml, yml}",
+                "display": "relativePath",
+                "fromFolder": {
+                    "fixed": "${workspaceFolder}"
+                },
+            }
+        }
+    ]
+}

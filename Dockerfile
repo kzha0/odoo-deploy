@@ -1,0 +1,3 @@
+ARG ODOO_VERSION=18.0
+ARG ODOO_IMAGE=sulit-solutions/odoo-builder
+FROM ${ODOO_IMAGE}:${ODOO_VERSION}

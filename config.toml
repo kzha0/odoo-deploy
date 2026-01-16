@@ -1,0 +1,20 @@
+project_name = "my-odoo-app"
+odoo_version = "18.0"
+builder_image = "soolit-tech/odoo-builder-oca"
+
+[[repos]]
+name = "sample-repo"
+url = "git@github.com:sample/repo.git"
+deploy_key_b64 = "sample-ssh-private-key-pem-b64"
+
+[instance.production]
+image_label = "my-org/my-odoo-production"
+addons = [
+    { repo = "sample-repo", branch = "main" },
+]
+
+[instance.staging]
+image_label = "my-org/my-odoo-staging"
+addons = [
+    { repo = "sample-repo", branch = "staging" },
+]
