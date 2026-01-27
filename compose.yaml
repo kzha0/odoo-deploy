@@ -33,7 +33,7 @@ services:
       - traefik.http.routers.odoo-production-websocket.tls.certresolver=main-resolver
       - traefik.http.routers.odoo-production-websocket.service=odoo-production-websocket
       - traefik.http.services.odoo-production-websocket.loadbalancer.server.port=8072
-      - traefik.http.services.odoo_production-websocket.loadbalancer.sticky.cookie=true
+      - traefik.http.services.odoo-production-websocket.loadbalancer.sticky.cookie=true
 
       - traefik.http.services.odoo-production.loadbalancer.healthcheck.path=/web/health
       - traefik.http.services.odoo-production.loadbalancer.healthcheck.interval=5s
