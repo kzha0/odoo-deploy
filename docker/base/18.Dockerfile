@@ -108,7 +108,7 @@ LABEL maintainer="Soolit Technologies" \
 USER odoo
 WORKDIR /home/odoo
 EXPOSE 8069 8071 8072
-HEALTHCHECK --interval=30s --timeout=5s --retries=10 \
+HEALTHCHECK --interval=10s --timeout=5s --retries=10 \
     CMD curl -fsS "http://127.0.0.1:${ODOO_HTTP_PORT:-8069}/web/health" || exit 1
 VOLUME ["/var/lib/odoo"]
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/home/odoo/entrypoint.sh"]
