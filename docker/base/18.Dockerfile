@@ -28,7 +28,10 @@ COPY template.odoo.conf /home/odoo/template.odoo.conf
 COPY set-config.sh /home/odoo/set-config.sh
 COPY entrypoint.sh /home/odoo/entrypoint.sh
 
-RUN set -eu; \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/tmp/git_cache \
+    --mount=type=cache,target=/root/.cache/pip \
+    set -eu; \
     if [ "${TARGETARCH}" = "arm64" ]; then \
         SHA=${WKHTMLTOPDF_ARM64_SHA}; \
     elif [ "${TARGETARCH}" = "amd64" ]; then \
@@ -38,9 +41,7 @@ RUN set -eu; \
         exit 1; \
         fi; \
     head -c 7 /wkhtmltox.deb | grep -aq '^!<arch>'; \
-    echo "${SHA} /wkhtmltox.deb" | sha256sum -c -
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    echo "${SHA} /wkhtmltox.deb" | sha256sum -c -; \
     apt-get update && apt-get install -y --no-install-recommends \
         "python${PYTHON_VERSION}" \
         "python${PYTHON_VERSION}-venv" \
@@ -77,27 +78,21 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git \
         tini \
         ./wkhtmltox.deb; \
-    rm -f /wkhtmltox.deb
-
-RUN --mount=type=cache,target=/tmp/git_cache \
+    rm -f ; \
     if [ ! -d /tmp/git_cache/odoo/.git ]; then \
         git clone --depth 1 --branch ${ODOO_VERSION} --single-branch ${ODOO_REPOSITORY} /tmp/git_cache/odoo; \
     else \
         git -C /tmp/git_cache/odoo pull; \
     fi; \
-    cp -r /tmp/git_cache/odoo /odoo
-
-RUN npm install --force -g rtlcss@3.4.0 \
+    cp -r /tmp/git_cache/odoo /odoo; \
+    npm install --force -g rtlcss@3.4.0 \
     && python3 -m venv /home/odoo/env \
-    && python -m ensurepip --upgrade
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --upgrade pip \
+    && python -m ensurepip --upgrade \
+    && python -m pip install --upgrade pip \
     && python -m pip install rlpycairo "pypdf2<3.0" \
     && python -m pip install -r /odoo/requirements.txt \
-    && python -m pip install /odoo
-
-RUN rm -rf /odoo \
+    && python -m pip install /odoo \
+    && rm -rf /odoo /wkhtmltox.deb \
     && ln -sf "/home/odoo/env/bin/odoo" /usr/local/bin/odoo \
     && mkdir -p "/home/odoo/env/lib/python${PYTHON_VERSION}/site-packages/addons" \
     && groupadd -g ${GID} odoo -o \
