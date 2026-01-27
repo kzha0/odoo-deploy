@@ -4,6 +4,7 @@ x-odoo-env: &odoo-env
   ODOO_DB_USER: ${DB_USER:-odoo}
   ODOO_DB_PASSWORD: ${DB_PASSWORD:-odoo}
   ODOO_LIST_DB: ${ODOO_LIST_DB:-False}
+  ODOO_PROXY_MODE: True
 
 x-odoo-defaults: &odoo-defaults
   image: soolit-tech/odoo-base:${ODOO_VERSION:-18}
@@ -26,6 +27,14 @@ services:
       - traefik.http.routers.odoo-production.priority=1
       - traefik.http.routers.odoo-production.service=odoo-production
       - traefik.http.services.odoo-production.loadbalancer.server.port=8069
+
+      - traefik.http.routers.odoo-production-websocket.rule=Host(`localhost`) && PathPrefix(`/websocket`)
+      - traefik.http.routers.odoo-production-websocket.entrypoints=websecure
+      - traefik.http.routers.odoo-production-websocket.tls.certresolver=main-resolver
+      - traefik.http.routers.odoo-production-websocket.service=odoo-production-websocket
+      - traefik.http.services.odoo-production-websocket.loadbalancer.server.port=8072
+      - traefik.http.services.odoo_production-websocket.loadbalancer.sticky.cookie=true
+
       - traefik.http.services.odoo-production.loadbalancer.healthcheck.path=/web/health
       - traefik.http.services.odoo-production.loadbalancer.healthcheck.interval=5s
       - traefik.http.services.odoo-production.loadbalancer.healthcheck.timeout=3s
@@ -54,6 +63,14 @@ services:
       - traefik.http.routers.odoo-staging.priority=100
       - traefik.http.routers.odoo-staging.service=odoo-staging
       - traefik.http.services.odoo-staging.loadbalancer.server.port=8069
+
+      - traefik.http.routers.odoo-staging-websocket.rule=Host(`staging.localhost`) && PathPrefix(`/websocket`)
+      - traefik.http.routers.odoo-staging-websocket.entrypoints=websecure
+      - traefik.http.routers.odoo-staging-websocket.tls.certresolver=main-resolver
+      - traefik.http.routers.odoo-staging-websocket.service=odoo-staging-websocket
+      - traefik.http.services.odoo-staging-websocket.loadbalancer.server.port=8072
+      - traefik.http.services.odoo-staging-websocket.loadbalancer.sticky.cookie=true
+
       - traefik.http.services.odoo-staging.loadbalancer.healthcheck.path=/web/health
       - traefik.http.services.odoo-staging.loadbalancer.healthcheck.interval=5s
       - traefik.http.services.odoo-staging.loadbalancer.healthcheck.timeout=3s
