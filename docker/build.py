@@ -39,7 +39,7 @@ class BuildConfig:
     build_args: dict = field(default_factory=dict)
     _image_tags: list[str] = field(default_factory=list)
 
-    def build(self, version_tag: str):
+    def build(self, version_tag: str, multi: bool):
         build_date = date.today().isoformat()
         major_version = version_tag.split(".")[0]
 
@@ -56,6 +56,9 @@ class BuildConfig:
 
         for key, value in self.build_args.items():
             args += ["--build-arg", f"{key}={value}"]
+
+        if multi:
+            args += ["--platform", "linux/amd64,linux/arm64"]
 
         if self.dockerfile:
             args += ["-f", self.dockerfile]
@@ -87,6 +90,12 @@ def build_parser():
         default="18.0",
         help="Odoo version for tagging images",
     )
+    parser.add_argument(
+        "-m",
+        "--multi",
+        action="store_true",
+        help="Perform a multi-platform build"
+    )
     return parser
 
 
@@ -103,7 +112,7 @@ if __name__ == "__main__":
         for item in IMG_CONFIGS
     ]
     for item in build_items:
-        item.build(args.version)
+        item.build(args.version, args.multi)
 
     if args.registry:
         for item in build_items:
