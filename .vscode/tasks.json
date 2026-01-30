@@ -54,6 +54,29 @@
             "args": [
                 "${input:pickYamlFile}"
             ],
+        },
+        {
+            "label": "Docker: Run pgAdmin",
+            "problemMatcher": [],
+            "type": "shell",
+            "command": "docker",
+            "args": [
+                "run",
+                "-d",
+                "--name",
+                "pgadmin",
+                "--restart",
+                "unless-stopped",
+                "-p",
+                "8080:80",
+                "-e",
+                "PGADMIN_DEFAULT_EMAIL=admin@example.com",
+                "-e",
+                "PGADMIN_DEFAULT_PASSWORD=admin",
+                "-v",
+                "pgadmin-data:/var/lib/pgadmin",
+                "dpage/pgadmin4"
+            ],
         }
     ],
     "inputs": [
