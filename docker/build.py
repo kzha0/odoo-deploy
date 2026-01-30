@@ -13,8 +13,8 @@ IMG_CONFIGS = [
         "dockerfile": "18.Dockerfile",
     },
     {
-        "label": "soolit-tech/odoo-oca",
-        "context": "./oca",
+        "label": "soolit-tech/odoo-community",
+        "context": "./community",
         "dockerfile": "18.Dockerfile",
     },
     {
@@ -23,10 +23,10 @@ IMG_CONFIGS = [
         "dockerfile": "18.Dockerfile",
     },
     {
-        "label": "soolit-tech/odoo-builder-oca",
+        "label": "soolit-tech/odoo-community-builder",
         "context": "./builder",
         "dockerfile": "18.Dockerfile",
-        "build_args": {"ODOO_IMAGE": "soolit-tech/odoo-oca"},
+        "build_args": {"ODOO_IMAGE": "soolit-tech/odoo-community"},
     },
 ]
 
