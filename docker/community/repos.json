@@ -1,5 +1,9 @@
 [
     {
+        "url": "https://github.com/camptocamp/odoo-cloud-platform.git",
+        "branch": "18.0"
+    },
+    {
         "url": "https://github.com/OCA/web.git",
         "branch": "18.0"
     },
