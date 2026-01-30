@@ -1,5 +1,7 @@
 FROM debian:trixie-slim
 
+SHELL ["/bin/bash", "-xeuo", "pipefail", "-c"]
+
 ENV LANG=C.UTF-8
 ENV PATH=/home/odoo/env/bin:${PATH}
 ENV ODOO_RC=/etc/odoo/odoo.conf
@@ -42,7 +44,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi; \
     head -c 7 /wkhtmltox.deb | grep -aq '^!<arch>'; \
     echo "${SHA} /wkhtmltox.deb" | sha256sum -c -; \
-    apt-get update && apt-get install -y --no-install-recommends \
+    DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
         "python${PYTHON_VERSION}" \
         "python${PYTHON_VERSION}-venv" \
         "python${PYTHON_VERSION}-dev" \
@@ -78,7 +80,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git \
         tini \
         ./wkhtmltox.deb; \
-    rm -f ; \
     if [ ! -d /tmp/git_cache/odoo/.git ]; then \
         git clone --depth 1 --branch ${ODOO_VERSION} --single-branch ${ODOO_REPOSITORY} /tmp/git_cache/odoo; \
     else \
