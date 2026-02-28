@@ -39,7 +39,7 @@ class BuildConfig:
     build_args: dict = field(default_factory=dict)
     _image_tags: list[str] = field(default_factory=list)
 
-    def build(self, version_tag: str, multi: bool):
+    def build(self, version_tag: str, multi: bool, no_cache: bool):
         build_date = date.today().isoformat()
         major_version = version_tag.split(".")[0]
 
@@ -53,6 +53,9 @@ class BuildConfig:
         args = ["docker", "build"]
         for tag in tags:
             args += ["-t", tag]
+
+        if no_cache:
+            args += ["--no-cache"]
 
         for key, value in self.build_args.items():
             args += ["--build-arg", f"{key}={value}"]
@@ -97,6 +100,12 @@ def build_parser():
         action="store_true",
         help="Perform a multi-platform build"
     )
+    parser.add_argument(
+        "-n",
+        "--no-cache",
+        action="store_true",
+        help="Build without cache",
+    )
     return parser
 
 
@@ -113,7 +122,7 @@ if __name__ == "__main__":
         for item in IMG_CONFIGS
     ]
     for item in build_items:
-        item.build(args.version, args.multi)
+        item.build(args.version, args.multi, args.no_cache)
 
     if args.registry:
         for item in build_items:
