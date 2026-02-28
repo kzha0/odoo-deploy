@@ -56,6 +56,7 @@ class BuildConfig:
 
         for key, value in self.build_args.items():
             args += ["--build-arg", f"{key}={value}"]
+        args += ["--build-arg", f"ODOO_VERSION={version_tag}"]
 
         if multi:
             args += ["--platform", "linux/amd64,linux/arm64"]

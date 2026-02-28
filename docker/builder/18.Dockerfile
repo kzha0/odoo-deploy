@@ -11,10 +11,9 @@ ONBUILD ARG BUILDER_ADDONS_BASE_DIR="${BUILDER_ADDONS_BASE_DIR:-/opt/addons}"
 ONBUILD ENV BUILDER_ADDONS_JSON_B64=${BUILDER_ADDONS_JSON_B64}
 ONBUILD ENV BUILDER_ADDONS_BASE_DIR=${BUILDER_ADDONS_BASE_DIR}
 
-ONBUILD RUN --mount=type=cache,target=/tmp/git_cache,uid=${UID},gid=${GID} \
-            --mount=type=cache,target=/home/odoo/.cache/pip,uid=${UID},gid=${GID} \
+ONBUILD RUN --mount=type=cache,target=/home/odoo/.cache/pip,uid=${UID},gid=${GID} \
             if [ -n "${BUILDER_ADDONS_JSON_B64:-}" ]; then \
-                setup-util get-addons -c /tmp/git_cache -j -b "${BUILDER_ADDONS_JSON_B64}"; \
+                setup-util get-addons -j -b "${BUILDER_ADDONS_JSON_B64}"; \
             else \
                 echo "BUILDER_ADDONS_JSON_B64 not set; skipping get-addons"; \
             fi
