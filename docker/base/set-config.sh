@@ -199,6 +199,9 @@ export ODOO_OVERWRITE_EXISTING_TRANSLATIONS=${ODOO_OVERWRITE_EXISTING_TRANSLATIO
 ####
 # Security-related options
 ####
+# admin_passwd (default "")
+export ODOO_ADMIN_PASSWD=${ODOO_ADMIN_PASSWD:-}
+
 # list_db (default True)
 export ODOO_LIST_DB=${ODOO_LIST_DB:-True}
 
