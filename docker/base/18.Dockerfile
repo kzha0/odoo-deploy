@@ -40,8 +40,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && echo "${SHA} /wkhtmltox.deb" | sha256sum -c - \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         "python${PYTHON_VERSION}" \
-        "python${PYTHON_VERSION}-venv" \
-        "python${PYTHON_VERSION}-dev" \
+        python3-pip \
+        python3-venv \
+        python3-dev \
         libxml2-dev \
         libxslt1-dev \
         zlib1g-dev \
@@ -83,11 +84,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # install dependencies
 RUN --mount=type=cache,target=/root/.cache/pip \
     npm install --force -g rtlcss@3.4.0 \
-    && python3 -m venv /home/odoo/env \
-    && python -m ensurepip --upgrade \
     && curl -o /requirements.txt "https://raw.githubusercontent.com/${ODOO_REPOSITORY}/${ODOO_VERSION}/requirements.txt" \
-    && python -m pip install --upgrade -r /requirements.txt \
-        pip \
+    && pip install --break-system-packages -r /requirements.txt \
         rlpycairo \
         "pypdf2<3.0" \
     && rm -f /requirements.txt
@@ -97,10 +95,10 @@ RUN git clone \
         --depth 1 \
         --branch ${ODOO_VERSION} \
         --single-branch \
-        "https://github.com/${ODOO_REPOSITORY}.git" /odoo \
-    && python -m pip install /odoo \
-    && rm -rf /odoo \
-    && ln -sf "/home/odoo/env/bin/odoo" /usr/local/bin/odoo \
+        "https://github.com/${ODOO_REPOSITORY}.git" /opt/odoo \
+    && pip install --break-system-packages /opt/odoo  \
+    && python3 -m venv /home/odoo/env --system-site-packages \
+    && ln -sf /opt/odoo/odoo-bin /usr/local/bin/odoo \
     && mkdir -p "/home/odoo/env/lib/python${PYTHON_VERSION}/site-packages/addons" \
     && mkdir -p  /var/lib/odoo /etc/odoo \
     && chown -R odoo:odoo /opt /var/lib/odoo /etc/odoo /home/odoo \
