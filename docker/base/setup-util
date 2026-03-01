@@ -91,6 +91,7 @@ class Addon:
     def __hash__(self):
         return hash((self.git_url.base_url, self.branch))
 
+    # TODO: FIX ISSUE WITH NO DEFAULT SSH KEY
     def clone_repo(self, base_dir: Path, cache_dir: Path | None = None):
         repo_name = self.git_url.repo_name
         clone_path = base_dir / repo_name
@@ -205,12 +206,12 @@ class Addon:
             if deploy_key_path is not None:
                 deploy_key_path.unlink()
 
-    def install_requirements(self):
-        if not self.clone_path:
-            return
+
+def install_requirements(addon_paths: set[Path]):
+    for path in addon_paths:
         for requirements in [
-            *self.clone_path.glob("requirements.txt"),
-            *self.clone_path.glob("*/requirements.txt"),
+            *path.glob("requirements.txt"),
+            *path.glob("*/requirements.txt"),
         ]:
             subprocess.run(
                 [
@@ -227,11 +228,9 @@ class Addon:
 
 
 def get_addons(
-    base_dir: Path,
     json_mode: bool,
     b64: bool,
     source: str,
-    cache_dir: Path | None = None,
 ):
     addons_str = None
     if b64:
@@ -260,34 +259,48 @@ def get_addons(
                 continue
             addons.add(Addon(line.strip()))
 
-    base_dir.mkdir(parents=True, exist_ok=True)
-    for addon in addons:
-        addon.clone_repo(base_dir, cache_dir)
-    for addon in addons:
-        addon.install_requirements()
+    return addons
 
-    addons_file = Path.home() / "odoo-addons.txt"
-    addons_file.parent.mkdir(parents=True, exist_ok=True)
+
+def get_addons_list(addons_file: Path):
+    if not addons_file.exists():
+        raise Exception(f"Addons file '{addons_file}' does not exist")
+
+    addon_paths: set[Path] = set()
+    with addons_file.open("r") as addons_txt:
+        addons_txt.seek(0)
+        for line in addons_txt.read().splitlines():
+            line_stripped = line.strip()
+            if line_stripped:
+                addon_paths.add(Path(line_stripped))
+
+    return addon_paths
+
+
+def append_addons_list(addons_file: Path, addon_paths: set[Path]):
+    if not addons_file.exists():
+        raise Exception(f"Addons file '{addons_file}' does not exist")
+
+    existing_paths = get_addons_list(addons_file)
+    if not (addon_paths - existing_paths):
+        return  # no-op
+
+    new_paths = existing_paths | addon_paths
     with addons_file.open("a+") as addons_txt:
         addons_txt.seek(0)
-        existing_paths: set[Path] = set()
-        for line in addons_txt.read().splitlines():
-            if line.strip():
-                existing_paths.add(Path(line.strip()))
-        for addon in addons:
-            if addon.clone_path:
-                existing_paths.add(addon.clone_path)
-
-        addons_txt.seek(0)
         addons_txt.truncate()
-        for path in sorted(existing_paths):
+        for path in sorted(new_paths):
             addons_txt.write(str(path) + "\n")
 
 
-def set_config(addons_list: Path, template: Path, out: Path):
+def set_config(addons_file: Path, template: Path, out: Path):
+    """
+    Write to `/etc/odoo/odoo.conf` based on contents of `template` file and
+    substituted by current environment variables and paths from `addons_list`
+    """
     addon_paths = set()
-    if addons_list.exists():
-        for line in addons_list.read_text().splitlines():
+    if addons_file.exists():
+        for line in addons_file.read_text().splitlines():
             if not line:
                 continue
             addon_paths.add(line.strip())
@@ -352,6 +365,35 @@ def build_parser():
         help="Input source: a file path to a simple list of repos, or a b64-encoded json string if the '-j' flag was enabled",
     )
 
+    parser_append_addons = subparser.add_parser("append-addons")
+    parser_append_addons.add_argument(
+        "-a",
+        "--addons-list",
+        type=Path,
+        default=Path("/home/odoo/odoo-addons.txt"),
+        help="Path to addons list for setting 'addons_path' config key. Defaults to '/home/odoo/odoo-addons.txt'",
+    )
+    parser_append_addons.add_argument(
+        "-n",
+        "--nested",
+        action="store_true",
+        help="Scan the path as a list of nested addons subfolders"
+    )
+    parser_append_addons.add_argument(
+        "path",
+        type=Path,
+        help="Path of the addons folder to add to addons-list file",
+    )
+
+    parser_requirements = subparser.add_parser("install-requirements")
+    parser_requirements.add_argument(
+        "-a",
+        "--addons-list",
+        type=Path,
+        default=Path("/home/odoo/odoo-addons.txt"),
+        help="Path to addons list for setting 'addons_path' config key. Defaults to '/home/odoo/odoo-addons.txt'",
+    )
+
     parser_config = subparser.add_parser("set-config")
     parser_config.add_argument(
         "-a",
@@ -388,6 +430,33 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.subcommand == "get-addons":
-        get_addons(args.base_dir, args.json_mode, args.b64, args.source, args.cache_dir)
+        addons = get_addons(args.json_mode, args.b64, args.source)
+
+        base_dir = args.base_dir
+        base_dir.mkdir(parents=True, exist_ok=True)
+        for addon in addons:
+            addon.clone_repo(base_dir, args.cache_dir)
+
+        addon_paths = set([addon.clone_path for addon in addons if addon.clone_path])
+        install_requirements(addon_paths)
+
+        addons_file = Path.home() / "odoo-addons.txt"
+        addons_file.parent.mkdir(parents=True, exist_ok=True)
+        addons_file.touch(exist_ok=True)
+        append_addons_list(addons_file, addon_paths)
+
+    elif args.subcommand == "append-addons":
+        addon_paths = set()
+        addon_dir: Path = args.path
+        if args.nested:
+            addon_paths.update([path for path in addon_dir.glob("*") if path.is_dir()])
+        else:
+            addon_paths.add(args.addon_dir)
+        append_addons_list(args.addons_list, addon_paths)
+
+    elif args.subcommand == "install-requirements":
+        addon_paths = get_addons_list(args.addons_list)
+        install_requirements(addon_paths)
+
     elif args.subcommand == "set-config":
         set_config(args.addons_list, args.template, args.out)
