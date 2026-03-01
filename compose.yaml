@@ -7,73 +7,58 @@ x-odoo-env: &odoo-env
   ODOO_PROXY_MODE: True
 
 x-odoo-defaults: &odoo-defaults
-  image: soolit-tech/odoo-base:${ODOO_VERSION:-18}
+  image: soolit-tech/odoo-community:${ODOO_VERSION:-18}
   volumes:
     - odoo-filestore:/var/lib/odoo
 
 services:
   odoo-production:
     <<: *odoo-defaults
+    volumes:
+    - odoo-filestore:/var/lib/odoo
     depends_on:
       - db
     environment:
       <<: *odoo-env
-      ODOO_DB_NAME: production
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.odoo-production.rule=Host(`localhost`) || Host(`127.0.0.1`)
-      - traefik.http.routers.odoo-production.entrypoints=websecure
-      - traefik.http.routers.odoo-production.tls.certresolver=main-resolver
-      - traefik.http.routers.odoo-production.priority=1
-      - traefik.http.routers.odoo-production.service=odoo-production
-      - traefik.http.services.odoo-production.loadbalancer.server.port=8069
-
-      - traefik.http.routers.odoo-production-websocket.rule=Host(`localhost`) && PathPrefix(`/websocket`)
-      - traefik.http.routers.odoo-production-websocket.entrypoints=websecure
-      - traefik.http.routers.odoo-production-websocket.tls.certresolver=main-resolver
-      - traefik.http.routers.odoo-production-websocket.service=odoo-production-websocket
-      - traefik.http.services.odoo-production-websocket.loadbalancer.server.port=8072
-      - traefik.http.services.odoo-production-websocket.loadbalancer.sticky.cookie=true
-
-      - traefik.http.services.odoo-production.loadbalancer.healthcheck.path=/web/health
-      - traefik.http.services.odoo-production.loadbalancer.healthcheck.interval=5s
-      - traefik.http.services.odoo-production.loadbalancer.healthcheck.timeout=3s
-
-  odoo-staging:
-    <<: *odoo-defaults
-    depends_on:
-      db:
-        condition: service_started
-      odoo-production:
-        condition: service_healthy
-    environment:
-      <<: *odoo-env
-      ODOO_DB_NAME: staging
+      ODOO_DB_ROUTER_RULES: "[{\"match\":\"^([a-z0-9-]+)\\\\.odoo\\\\.localhost$\",\"replace\":\"\\\\1-odoo-production\"},{\"match\":\"^([a-z0-9-]+)\\\\.staging\\\\.odoo\\\\.localhost$\",\"replace\":\"\\\\1-odoo-staging\"}]"
+      ODOO_SERVER_WIDE_MODULES: base,web,map_host_to_db
+      SERVER_ADDONS_JSON_B64: W3sidXJsIjogImh0dHBzOi8vZ2l0aHViLmNvbS9remhhMC9vZG9vLXNlcnZlci11dGlscy5naXQiLCAiYnJhbmNoIjogbnVsbH1d
     command:
       - >
-        ./set-config.sh
+        setup-util get-addons -j -b "$${SERVER_ADDONS_JSON_B64}"
+        && echo "/mnt/extra-addons/odoo-server-utils" >> /home/odoo/odoo-addons.txt
+        && ./set-config.sh
         && wait-for-psql
-        && odoo db duplicate -n -f production staging
         && odoo
     labels:
       - traefik.enable=true
-      - traefik.http.routers.odoo-staging.rule=Host(`staging.localhost`)
-      - traefik.http.routers.odoo-staging.entrypoints=websecure
-      - traefik.http.routers.odoo-staging.tls.certresolver=main-resolver
+      - traefik.http.services.odoo.loadbalancer.server.port=8069
+      - traefik.http.services.odoo.loadbalancer.healthcheck.path=/web/health
+      - traefik.http.services.odoo.loadbalancer.healthcheck.interval=30s
+      - traefik.http.services.odoo.loadbalancer.healthcheck.timeout=5s
+
+      - traefik.http.services.odoo-websocket.loadbalancer.server.port=8072
+      - traefik.http.services.odoo-websocket.loadbalancer.sticky.cookie=true
+
+      - traefik.http.routers.odoo.rule=HostRegexp(`[a-z0-9-]+\.odoo\.localhost$`)
+      - traefik.http.routers.odoo.service=odoo
+      - traefik.http.routers.odoo.entrypoints=web
+      - traefik.http.routers.odoo.priority=1000
+
+      - traefik.http.routers.odoo-websocket.rule=HostRegexp(`[a-z0-9-]+\.odoo\.localhost$`) && PathPrefix(`/websocket`)
+      - traefik.http.routers.odoo-websocket.service=odoo-websocket
+      - traefik.http.routers.odoo-websocket.entrypoints=web
+      - traefik.http.routers.odoo-websocket.priority=1010
+
+      - traefik.http.routers.odoo-staging.rule=HostRegexp(`[a-z0-9-]+\.staging\.odoo\.localhost$`)
+      - traefik.http.routers.odoo-staging.service=odoo
+      - traefik.http.routers.odoo-staging.entrypoints=web
       - traefik.http.routers.odoo-staging.priority=100
-      - traefik.http.routers.odoo-staging.service=odoo-staging
-      - traefik.http.services.odoo-staging.loadbalancer.server.port=8069
 
-      - traefik.http.routers.odoo-staging-websocket.rule=Host(`staging.localhost`) && PathPrefix(`/websocket`)
-      - traefik.http.routers.odoo-staging-websocket.entrypoints=websecure
-      - traefik.http.routers.odoo-staging-websocket.tls.certresolver=main-resolver
-      - traefik.http.routers.odoo-staging-websocket.service=odoo-staging-websocket
-      - traefik.http.services.odoo-staging-websocket.loadbalancer.server.port=8072
-      - traefik.http.services.odoo-staging-websocket.loadbalancer.sticky.cookie=true
-
-      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.path=/web/health
-      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.interval=5s
-      - traefik.http.services.odoo-staging.loadbalancer.healthcheck.timeout=3s
+      - traefik.http.routers.odoo-staging-websocket.rule=HostRegexp(`[a-z0-9-]+\.staging\.odoo\.localhost$`) && PathPrefix(`/websocket`)
+      - traefik.http.routers.odoo-staging-websocket.service=odoo-websocket
+      - traefik.http.routers.odoo-staging-websocket.entrypoints=web
+      - traefik.http.routers.odoo-staging-websocket.priority=110
 
   db:
     image: postgres:17
@@ -96,13 +81,6 @@ services:
       - --providers.docker.allowEmptyServices=true
 
       - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.websecure.address=:443
-      - --certificatesResolvers.main-resolver.acme.httpChallenge=true
-      - --certificatesResolvers.main-resolver.acme.httpChallenge.entrypoint=web
-      - --certificatesResolvers.main-resolver.acme.email=${LETSENCRYPT_EMAIL:-}
-      - --certificatesResolvers.main-resolver.acme.storage=/letsencrypt/acme.json
 
       # Observability
       - --log.level=INFO
