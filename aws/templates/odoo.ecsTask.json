@@ -1,0 +1,163 @@
+{
+    "family": "odoo-deploy-odoo",
+    "runtimePlatform": {
+        "cpuArchitecture": "ARM64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "volumes": [
+        {
+            "name": "odoo-filestore",
+            "dockerVolumeConfiguration": {
+                "scope": "shared",
+                "autoprovision": true,
+                "driver": "local"
+            }
+        },
+        {
+            "name": "odoo-backups",
+            "host": {
+                "sourcePath": "/home/ec2-user/odoo-backups"
+            }
+        }
+    ],
+    "networkMode": "bridge",
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "taskRoleArn": "arn:aws:iam::662505429824:role/ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::662505429824:role/ecsTaskExecutionRole",
+    "placementConstraints": [],
+    "enableFaultInjection": false,
+    "containerDefinitions": [
+        {
+            "name": "odoo",
+            "image": "public.ecr.aws/h8g5j2t1/soolit-tech/odoo-community:18.0",
+            "essential": true,
+            "cpu": 1024,
+            "memory": 768,
+            "memoryReservation": 256,
+            "portMappings": [
+                {
+                    "name": "odoo-8069",
+                    "containerPort": 8069,
+                    "hostPort": 0,
+                    "protocol": "tcp"
+                },
+                {
+                    "name": "odoo-8072",
+                    "containerPort": 8072,
+                    "hostPort": 0,
+                    "protocol": "tcp"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "sourceVolume": "odoo-filestore",
+                    "containerPath": "/var/lib/odoo",
+                    "readOnly": false
+                },
+                {
+                    "sourceVolume": "odoo-backups",
+                    "containerPath": "/var/lib/odoo/backups",
+                    "readOnly": false
+                }
+            ],
+            "volumesFrom": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/cabalza-optical-odoo",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "ap-southeast-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "curl -fsS http://127.0.0.1:${ODOO_HTTP_PORT:-8069}/web/health || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 5,
+                "retries": 3,
+                "startPeriod": 120
+            },
+            "systemControls": [],
+            "environment": [
+                {
+                    "name": "ADDONS_JSON_B64",
+                    "value": "="
+                },
+                {
+                    "name": "SERVER_ADDONS_JSON_B64",
+                    "value": "W3sidXJsIjogImh0dHBzOi8vZ2l0aHViLmNvbS9remhhMC9vZG9vLXNlcnZlci11dGlscy5naXQiLCAiYnJhbmNoIjogbnVsbH1d="
+                },
+                {
+                    "name": "ODOO_SERVER_WIDE_MODULES",
+                    "value": "base,web,map_host_to_db"
+                },
+                {
+                    "name": "ODOO_DB_ROUTER_RULES",
+                    "value": "[{\"match\":\"^([a-z0-9-]+)\\\\.odoo\\\\.soolit\\\\.xyz$\",\"replace\":\"\\\\1-odoo-production\"},{\"match\":\"^([a-z0-9-]+)\\\\.staging\\\\.odoo\\\\.soolit\\\\.xyz$\",\"replace\":\"\\\\1-odoo-staging\"}]"
+                },
+                                {
+                    "name": "ODOO_DB_HOST",
+                    "value": ""
+                },
+                {
+                    "name": "ODOO_DB_PASSWORD",
+                    "value": ""
+                },
+                {
+                    "name": "ODOO_LIST_DB",
+                    "value": "False"
+                },
+                {
+                    "name": "ODOO_PROXY_MODE",
+                    "value": "True"
+                },
+                {
+                    "name": "ODOO_UNACCENT",
+                    "value": "True"
+                }
+            ],
+            "command": [
+                "/bin/sh",
+                "-c",
+                "setup-util get-addons -j -b \"${ADDONS_JSON_B64}\" && setup-util get-addons -j -b \"${SERVER_ADDONS_JSON_B64}\" && ./set-config.sh && wait-for-psql && odoo"
+            ],
+            "dockerLabels": {
+                "traefik.enable": "true",
+
+                "traefik.http.services.odoo.loadbalancer.server.port": "8069",
+                "traefik.http.services.odoo.loadbalancer.healthcheck.path": "/web/health",
+                "traefik.http.services.odoo.loadbalancer.healthcheck.interval": "30s",
+                "traefik.http.services.odoo.loadbalancer.healthcheck.timeout": "5s",
+
+                "traefik.http.services.odoo-websocket.loadbalancer.server.port": "8072",
+                "traefik.http.services.odoo-websocket.loadbalancer.sticky.cookie": "true",
+
+                "traefik.http.routers.odoo.rule": "HostRegexp(`[a-z0-9-]+\\.odoo\\.soolit\\.xyz$`)",
+                "traefik.http.routers.odoo.service": "odoo",
+                "traefik.http.routers.odoo.entrypoints": "websecure",
+                "traefik.http.routers.odoo.priority": "1000",
+
+                "traefik.http.routers.odoo-websocket.rule": "HostRegexp(`[a-z0-9-]+\\.odoo\\.soolit\\.xyz$`) && PathPrefix(`/websocket`)",
+                "traefik.http.routers.odoo-websocket.service": "odoo-websocket",
+                "traefik.http.routers.odoo-websocket.entrypoints": "websecure",
+                "traefik.http.routers.odoo-websocket.priority": "1010",
+
+                "traefik.http.routers.odoo-staging.rule": "HostRegexp(`[a-z0-9-]+\\.staging\\.odoo\\.soolit\\.xyz$`)",
+                "traefik.http.routers.odoo-staging.service": "odoo",
+                "traefik.http.routers.odoo-staging.entrypoints": "websecure",
+                "traefik.http.routers.odoo-staging.priority": "100",
+
+                "traefik.http.routers.odoo-staging-websocket.rule": "HostRegexp(`[a-z0-9-]+\\.staging\\.odoo\\.soolit\\.xyz$`) && PathPrefix(`/websocket`)",
+                "traefik.http.routers.odoo-staging-websocket.service": "odoo-websocket",
+                "traefik.http.routers.odoo-staging-websocket.entrypoints": "websecure",
+                "traefik.http.routers.odoo-staging-websocket.priority": "110"
+            }
+        }
+    ]
+}

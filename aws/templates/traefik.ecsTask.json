@@ -1,0 +1,153 @@
+{
+    "family": "odoo-deploy-proxy",
+    "runtimePlatform": {
+        "cpuArchitecture": "ARM64",
+        "operatingSystemFamily": "LINUX"
+    },
+    "volumes": [
+        {
+            "name": "cert-data",
+            "dockerVolumeConfiguration": {
+                "scope": "shared",
+                "autoprovision": true,
+                "driver": "local"
+            }
+        }
+    ],
+    "networkMode": "bridge",
+    "requiresCompatibilities": [
+        "EC2"
+    ],
+    "taskRoleArn": "arn:aws:iam::662505429824:role/TraefikProxyTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::662505429824:role/TraefikProxyTaskExecutionRole",
+    "placementConstraints": [],
+    "enableFaultInjection": false,
+    "containerDefinitions": [
+        {
+            "name": "proxy",
+            "image": "traefik:v3.6.7",
+            "essential": true,
+            "cpu": 128,
+            "memory": 192,
+            "memoryReservation": 64,
+            "portMappings": [
+                {
+                    "name": "proxy-80",
+                    "containerPort": 80,
+                    "hostPort": 80,
+                    "protocol": "tcp"
+                },
+                {
+                    "name": "proxy-443",
+                    "containerPort": 443,
+                    "hostPort": 443,
+                    "protocol": "tcp"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "sourceVolume": "cert-data",
+                    "containerPath": "/letsencrypt",
+                    "readOnly": false
+                }
+            ],
+            "volumesFrom": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/odoo-deploy-proxy",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "ap-southeast-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "healthCheck": {
+                "command": [
+                    "CMD-SHELL",
+                    "traefik healthcheck --ping=true --ping.entrypoint=traefik --entrypoints.traefik.address=:8080 || exit 1"
+                ],
+                "interval": 30,
+                "timeout": 10,
+                "retries": 3,
+                "startPeriod": 60
+            },
+            "systemControls": [],
+            "environment": [
+                {
+                    "name": "CLOUDFLARE_DNS_API_TOKEN",
+                    "value": ""
+                },
+                {
+                    "name": "CLOUDFLARE_ZONE_API_TOKEN",
+                    "value": ""
+                },
+                {
+                    "name": "CLOUDFLARE_EMAIL",
+                    "value": ""
+                }
+            ],
+            "command": [
+                "--providers.ecs",
+                "--providers.ecs.exposedByDefault=false",
+                "--providers.ecs.clusters=odoo-deploy-1",
+
+                "--entrypoints.web.address=:80",
+                "--entrypoints.web.http.redirections.entrypoint.to=websecure",
+                "--entrypoints.web.http.redirections.entrypoint.scheme=https",
+                "--entrypoints.websecure.address=:443",
+                "--entrypoints.websecure.http.tls.certresolver=cloudflare",
+                "--entrypoints.websecure.http.tls.domains[0].main=soolit.xyz",
+                "--entrypoints.websecure.http.tls.domains[0].sans=odoo.soolit.xyz,*.odoo.soolit.xyz,*.staging.odoo.soolit.xyz",
+                "--entrypoints.traefik.address=:8080",
+
+                "--certificatesresolvers.cloudflare.acme.email=me@ricoduran.net",
+                "--certificatesresolvers.myresolver.acme.dnschallenge=true",
+                "--certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare",
+                "--certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json",
+                "--certificatesresolvers.cloudflare.acme.caserver=https://acme-v02.api.letsencrypt.org/directory",
+
+                "--log.level=INFO",
+                "--ping=true",
+                "--ping.entrypoint=traefik"
+            ],
+            "dockerLabels": {}
+        },
+        {
+            "name": "whoami",
+            "image": "traefik/whoami:v1.11",
+            "essential": false,
+            "cpu": 16,
+            "memory": 16,
+            "memoryReservation": 8,
+            "portMappings": [
+                {
+                    "name": "whoami-80",
+                    "containerPort": 80,
+                    "hostPort": 0,
+                    "protocol": "tcp"
+                }
+            ],
+            "mountPoints": [],
+            "volumesFrom": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/odoo-deploy-whoami",
+                    "awslogs-create-group": "true",
+                    "awslogs-region": "ap-southeast-1",
+                    "awslogs-stream-prefix": "ecs"
+                },
+                "secretOptions": []
+            },
+            "systemControls": [],
+            "environment": [],
+            "command": [],
+            "dockerLabels": {
+                "traefik.enable": "true",
+                "traefik.http.routers.whoami.rule": "Host(`whoami.soolit.xyz`)",
+                "traefik.http.routers.whoami.entrypoints": "websecure"
+            }
+        }
+    ]
+}
