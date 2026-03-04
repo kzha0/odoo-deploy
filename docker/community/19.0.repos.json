@@ -12,10 +12,6 @@
         "branch": "19.0"
     },
     {
-        "url": "https://github.com/OCA/server-tools.git",
-        "branch": "19.0"
-    },
-    {
         "url": "https://github.com/OCA/server-brand.git",
         "branch": "19.0"
     },
